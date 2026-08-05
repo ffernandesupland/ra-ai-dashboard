@@ -1,0 +1,249 @@
+// AI Knowledge Loop Dashboard — data model
+//
+// Three layers:
+//   1. Ingest    Snapshot + SourceFile      (one weekly window, provenance per file)
+//   2. Facts     typed tables + AggregateRow (join-critical typed, rollups as JSON)
+//   3. Metrics   MetricSnapshot              (computed `D` object, versioned)
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// One of the 15 RightAnswers report exports. Detected from CSV line 1, never the filename.
+enum ReportType {
+  GEN_SEARCH_GAP_ANALYSIS
+  GEN_USAGE_BY_SOLUTION
+  GEN_SUMMARY_BY_DAY
+  GEN_SUMMARY_BY_SEARCH_TYPE
+  GEN_SUMMARY_BY_USER
+  GEN_USAGE_BY_USER
+  GEN_USAGE_BY_COLLECTION
+  GEN_TTFA_BY_QUERY
+  GEN_TTFA_BY_PORTAL_GROUP
+  GEN_TTFA_BY_COLLECTION
+  GEN_TTFA_BY_USER
+  AIKA_USAGE_BY_SOLUTION
+  AIKA_USAGE_BY_ROLE
+  AIKA_USAGE_BY_USER
+  AI_USAGE_BY_USER
+}
+
+enum SnapshotStatus {
+  DRAFT
+  COMMITTED
+  SUPERSEDED
+}
+
+enum SearchType {
+  KEYWORD
+  NEURAL
+  HYBRID
+  UNKNOWN
+}
+
+/// One customer. Each workspace owns its own snapshots and its own ROI assumptions.
+/// Mapped to the original `Tenant` table so the rename cost no migration.
+model Workspace {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  name      String
+  /// Per-workspace ROI assumptions (wpm, scanSec, pVerify, pThumbsUp...). See lib/metrics/roi.
+  settings  Json     @default("{}")
+  createdAt DateTime @default(now())
+
+  snapshots Snapshot[]
+
+  @@map("Tenant")
+}
+
+/// A single reporting window. Uniqueness on (workspace, window) makes weekly re-uploads idempotent.
+model Snapshot {
+  id          String         @id @default(cuid())
+  workspaceId String         @map("tenantId")
+  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  /// Parsed from CSV line 2: "Filtered On Date Range: (07/21/2026 - 07/28/2026)"
+  windowStart DateTime       @db.Date
+  windowEnd   DateTime       @db.Date
+  /// windowEnd - windowStart in days. Drives loop-closure. Never hardcode 7.
+  windowDays  Int
+  status      SnapshotStatus @default(DRAFT)
+  label       String?
+  notes       String?
+  uploadedBy  String
+  uploadedAt  DateTime       @default(now())
+  committedAt DateTime?
+
+  sourceFiles        SourceFile[]
+  gapAnalysisRows    GapAnalysisRow[]
+  solutionUsageRows  SolutionUsageRow[]
+  aiKaSolutionRows   AiKaSolutionRow[]
+  dailySummaryRows   DailySummaryRow[]
+  ttfaQueryRows      TtfaQueryRow[]
+  aggregateRows      AggregateRow[]
+  metrics            MetricSnapshot?
+
+  @@unique([workspaceId, windowStart, windowEnd, uploadedAt], map: "Snapshot_tenantId_windowStart_windowEnd_uploadedAt_key")
+  @@index([workspaceId, status, windowEnd], map: "Snapshot_tenantId_status_windowEnd_idx")
+}
+
+/// Provenance for one uploaded CSV. Checksum makes re-uploading the same file a no-op.
+model SourceFile {
+  id           String     @id @default(cuid())
+  snapshotId   String
+  snapshot     Snapshot   @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  reportType   ReportType
+  originalName String
+  checksum     String
+  byteSize     Int
+  rowCount     Int
+  /// CSV line 1 and line 2, kept verbatim for audit.
+  titleLine    String
+  filterLine   String
+  /// Non-fatal parse issues: coerced nulls, unknown columns, malformed dates.
+  warnings     Json       @default("[]")
+  createdAt    DateTime   @default(now())
+
+  @@unique([snapshotId, reportType])
+  @@index([checksum])
+}
+
+// ---------------------------------------------------------------------------
+// Typed facts — the five reports that carry joins and drive headline metrics
+// ---------------------------------------------------------------------------
+
+/// Gen Answers - Search and Gap Analysis. One row per question asked at the portal.
+model GapAnalysisRow {
+  id         String     @id @default(cuid())
+  snapshotId String
+  snapshot   Snapshot   @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  ordinal    Int
+  askedOn    DateTime   @db.Date
+  username   String
+  firstName  String?
+  lastName   String?
+  portalGroup String
+  query       String
+  /// lowercase, trimmed, trailing "?" stripped. No stemming, no fuzzy matching.
+  queryNorm   String
+  searchType  SearchType
+  answered    Boolean
+  /// Solution IDs actually cited. 15-digit — String, never numeric.
+  referenceSolutions String[]
+  /// Solution IDs retrieved as candidates. Capped at 10 by the retriever.
+  contextSet         String[]
+  /// Null when the export had no parseable value. Never defaulted to 0.
+  mrr                Float?
+
+  @@index([snapshotId, queryNorm])
+  @@index([snapshotId, answered])
+}
+
+/// Gen Answers - Usage by Solution. One row per solution cited during the window.
+model SolutionUsageRow {
+  id                String   @id @default(cuid())
+  snapshotId        String
+  snapshot          Snapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  solutionId        String
+  title             String
+  citations         Int
+  pctOfTotal        Float?
+  daysSinceModified Int?
+  collections       String[]
+
+  @@unique([snapshotId, solutionId])
+  @@index([snapshotId, daysSinceModified])
+}
+
+/// AI Knowledge Assistant - Usage By Solution. Solutions touched by AI in Solution Manager.
+model AiKaSolutionRow {
+  id             String    @id @default(cuid())
+  snapshotId     String
+  snapshot       Snapshot  @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  solutionId     String
+  title          String
+  /// Draft | Review | Published — kept as source string, mapped at render time.
+  status         String
+  lastModifiedAt DateTime?
+  collections    String[]
+  aiActions      Int
+
+  @@unique([snapshotId, solutionId])
+}
+
+/// Gen Answers - Summary by day. Window may have gaps; store only dates present.
+model DailySummaryRow {
+  id                   String   @id @default(cuid())
+  snapshotId           String
+  snapshot             Snapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  date                 DateTime @db.Date
+  questions            Int
+  answered             Int
+  unanswered           Int
+  pctAnswered          Float?
+  /// Logs 0 in every known export — this zero is the deflection gap, keep it visible.
+  referenceSolutionView Int
+
+  @@unique([snapshotId, date])
+}
+
+/// Gen Answers - Time to Answer by query. The only report carrying Session ID.
+model TtfaQueryRow {
+  id         String    @id @default(cuid())
+  snapshotId String
+  snapshot   Snapshot  @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  ordinal    Int
+  /// Source format is "07\21\2026 08:04:15 AM EDT" — backslash separators.
+  askedAt    DateTime?
+  answeredAt DateTime?
+  username   String
+  /// Join anchor for the incoming thumbs and ITSM-linkage feeds.
+  sessionId  String
+  searchText String
+  ttfaSec    Int
+
+  @@index([snapshotId, sessionId])
+}
+
+// ---------------------------------------------------------------------------
+// Rollup reports — read back and rendered, never joined. Stored as normalised JSON.
+// ---------------------------------------------------------------------------
+
+model AggregateRow {
+  id         String     @id @default(cuid())
+  snapshotId String
+  snapshot   Snapshot   @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  reportType ReportType
+  ordinal    Int
+  payload    Json
+
+  @@index([snapshotId, reportType])
+}
+
+// ---------------------------------------------------------------------------
+// Computed metrics
+// ---------------------------------------------------------------------------
+
+/// The rendered `D` object. Recomputed on ingest and on metricsVersion bump.
+model MetricSnapshot {
+  id             String   @id @default(cuid())
+  snapshotId     String   @unique
+  snapshot       Snapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  /// Bump when a formula in lib/metrics changes; triggers backfill of historic snapshots.
+  metricsVersion Int
+  data           Json
+  /// Headline values promoted to columns so /trends can query without unpacking JSON.
+  questionsAsked   Int
+  answerRate       Float
+  solutionsCited   Int
+  totalCitations   Int
+  loopClosure      Float
+  loopClosureWtd   Float
+  aiShareOfRepair  Float
+  medianTtfaSec    Float
+  computedAt       DateTime @default(now())
+}
