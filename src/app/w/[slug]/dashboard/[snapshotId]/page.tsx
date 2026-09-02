@@ -6,7 +6,7 @@ import { prisma } from "@/lib/db";
 import { getDashboardData, refreshNarratives } from "@/lib/snapshots";
 import { isNarrativeConfigured } from "@/lib/narrative";
 import type { Narratives } from "@/lib/narrative/types";
-import { embedContext, withEmbedToken } from "@/lib/embed";
+import { embedContext } from "@/lib/embed";
 import { requireWorkspace } from "../../workspace";
 
 export const dynamic = "force-dynamic";
@@ -31,7 +31,7 @@ export default async function DashboardPage({
   if (!data) notFound();
 
   const narrativeEnabled = isNarrativeConfigured();
-  const { embedded, token } = await embedContext();
+  const { embedded } = await embedContext();
 
   async function rewrite() {
     "use server";
@@ -58,36 +58,44 @@ export default async function DashboardPage({
         ]}
       />
 
-      <div style={{ display: "flex", gap: 8, marginTop: 14, alignItems: "center", flexWrap: "wrap" }}>
-        <a className="btn btn-ghost" href={withEmbedToken(`/api/export/${snapshot.id}/html`, token)}>
-          Download standalone HTML
-        </a>
-        <a className="btn btn-ghost" href={withEmbedToken(`/api/export/${snapshot.id}/csv`, token)}>
-          Download CSV
-        </a>
-        {embedded ? null : (
-          <form action={rewrite}>
-            <button className="btn btn-ghost" type="submit" disabled={!narrativeEnabled}>
-              {data.narratives.source === "model" ? "Rewrite analysis" : "Write analysis with AI"}
-            </button>
-          </form>
-        )}
-        <span className="provenance">{describeNarratives(data.narratives, narrativeEnabled)}</span>
-      </div>
+      {/* Exports, regeneration and the housekeeping notices are all operator business.
+          An embedded dashboard is a reading surface, so it goes straight to the tabs. */}
+      {embedded ? null : (
+        <>
+          <div
+            style={{ display: "flex", gap: 8, marginTop: 14, alignItems: "center", flexWrap: "wrap" }}
+          >
+            <a className="btn btn-ghost" href={`/api/export/${snapshot.id}/html`}>
+              Download standalone HTML
+            </a>
+            <a className="btn btn-ghost" href={`/api/export/${snapshot.id}/csv`}>
+              Download CSV
+            </a>
+            <form action={rewrite}>
+              <button className="btn btn-ghost" type="submit" disabled={!narrativeEnabled}>
+                {data.narratives.source === "model" ? "Rewrite analysis" : "Write analysis with AI"}
+              </button>
+            </form>
+            <span className="provenance">
+              {describeNarratives(data.narratives, narrativeEnabled)}
+            </span>
+          </div>
 
-      {staleDays > 8 ? (
-        <div className="notice" style={{ marginTop: 16 }}>
-          This snapshot&apos;s window closed {staleDays} days ago. A weekly refresh is due —{" "}
-          <a href="/admin/upload">upload this week&apos;s exports</a>.
-        </div>
-      ) : null}
+          {staleDays > 8 ? (
+            <div className="notice" style={{ marginTop: 16 }}>
+              This snapshot&apos;s window closed {staleDays} days ago. A weekly refresh is due —{" "}
+              <a href="/admin/upload">upload this week&apos;s exports</a>.
+            </div>
+          ) : null}
 
-      {data.coverage.some((c) => !c.present) ? (
-        <div className="notice" style={{ marginTop: 16 }}>
-          {data.coverage.filter((c) => !c.present).length} report(s) missing from this snapshot.
-          Affected panels render from what is present rather than substituting defaults.
-        </div>
-      ) : null}
+          {data.coverage.some((c) => !c.present) ? (
+            <div className="notice" style={{ marginTop: 16 }}>
+              {data.coverage.filter((c) => !c.present).length} report(s) missing from this snapshot.
+              Affected panels render from what is present rather than substituting defaults.
+            </div>
+          ) : null}
+        </>
+      )}
 
       <Dashboard data={data} />
     </main>

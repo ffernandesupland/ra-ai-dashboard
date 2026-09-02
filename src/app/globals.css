@@ -111,6 +111,12 @@ body:has(.embed-marker) .shell {
   padding: 0 20px 32px;
 }
 
+/* Nothing sits above the title inside an iframe, so the masthead's usual clearance
+   from the nav bar would read as a band of dead space. */
+body:has(.embed-marker) .masthead {
+  padding-top: 10px;
+}
+
 .brandbar {
   display: flex;
   align-items: center;
