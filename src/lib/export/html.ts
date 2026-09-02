@@ -252,10 +252,12 @@ function qualityPanel(data: DashboardData): string {
   <div class="grid grid-2">
     <div class="card"><h3 class="card-title">Time to first answer by portal group</h3>
       ${data.ttfaByPortalGroup.map((b) => bar(b, `${b.value}s`)).join("")}
+      <p>${esc(data.narratives.serveSpeed)}</p>
     </div>
     <div class="card"><h3 class="card-title">Citation spread</h3>
       ${data.serving.citationSpread.map((b) => bar(b)).join("")}
       <p>${data.counts.totalCitations} citations over ${data.counts.solutionsCited} solutions.</p>
+      <p>${esc(data.narratives.citationSpread)}</p>
     </div>
   </div>
 </section>`;
@@ -281,17 +283,18 @@ function healthPanel(data: DashboardData): string {
         decay.worklist.map((w) => [esc(w.title), String(w.citations), chip(w.chip, `${w.days}d`)]),
         [false, true, true],
       )}
+      <p>${esc(data.narratives.worklistPriority)}</p>
     </div>
   </div>
 </section>
 <section class="stage">
-  ${stageHead("06 / Repair", "Loop closure", `${pct(repair.loopClosure)} of ${repair.denominator} cited solutions · ${pct(repair.loopClosureWeighted)} citation-weighted`)}
+  ${stageHead("06 / Repair", "Loop closure", `${pct(repair.reviewClosure)} of ${repair.dueForReview} solutions due for review were refreshed · ${pct(repair.reviewClosureWeighted)} citation-weighted · ${repair.reviewThresholdDays}-day cadence`)}
   <div class="grid grid-3">
     <div class="card"><h3 class="card-title">Loop closure</h3>
       ${bar({ label: `Refreshed in window (${repair.windowDays}d)`, value: repair.refreshedInWindow, pct: (repair.refreshedInWindow / repair.denominator) * 100, tone: "signal" })}
       ${bar({ label: "Refreshed in 30 days", value: repair.refreshedIn30Days, pct: (repair.refreshedIn30Days / repair.denominator) * 100, tone: "ochre" })}
       ${bar({ label: "Untouched over 1 year", value: repair.untouchedOverYear, pct: (repair.untouchedOverYear / repair.denominator) * 100, tone: "garnet" })}
-      <p>Any edit counts, by any method. A metric that only counts AI repair is feature usage wearing an outcome metric's clothes.</p>
+      <p>Closure is scored only against the ${repair.dueForReview} solutions that needed attention — ${repair.overdueForReview} overdue past the ${repair.reviewThresholdDays}-day cadence plus ${repair.refreshedInWindow} refreshed in-window. The ${repair.onCadence} still within cadence are healthy, so KCS treats them as done, not debt. Any edit counts, by any method.</p>
     </div>
     <div class="card"><h3 class="card-title">AI-assisted share of repair</h3>
       <div class="split"><div class="t-signal" style="width:${aiShare.toFixed(2)}%"></div><div class="t-slate" style="width:${(100 - aiShare).toFixed(2)}%"></div></div>
@@ -316,6 +319,7 @@ function healthPanel(data: DashboardData): string {
       data.repairQueue.map((q) => [esc(q.candidate), esc(q.signal), chip(q.chip, q.status)]),
       [false, false, true],
     )}
+    <p>${esc(data.narratives.repairQueue)}</p>
   </div>
 </section>`;
 }
@@ -330,7 +334,7 @@ function roiPanel(data: DashboardData, workspaceName: string): string {
   <div class="card">
     <div class="eyebrow">Modelled, not measured</div>
     <h2 style="font-family:var(--cond);font-size:28px;margin:8px 0 10px">${roi.views.length} ROI views. ${live} ${live === 1 ? "is" : "are"} computable, ${roi.views.length - live} ${roi.views.length - live === 1 ? "is" : "are"} waiting on data.</h2>
-    <p>Every figure derives from a stated formula with inputs marked live, partial or missing. No vendor benchmark constants are used, and no missing input is replaced with a plausible default.</p>
+    <p>Every figure derives from a stated formula. Observed inputs come straight from the exports; the remaining inputs are named assumptions, shown beside each result and editable, never presented as measured.</p>
   </div>
   <div class="card" style="margin-top:18px">
     <h3 class="card-title">View 1 — Time saved reading</h3>
@@ -349,6 +353,18 @@ function roiPanel(data: DashboardData, workspaceName: string): string {
     .map(
       (view, index) => `<div class="card" style="margin-top:18px">
     <h3 class="card-title">View ${index + 1} — ${esc(view.title)}</h3>
+    ${
+      view.result
+        ? `<div style="margin:6px 0 14px">
+      <div style="font-family:var(--cond);font-size:26px;line-height:1.1">${esc(view.result.headline)}</div>
+      <p style="margin:4px 0 12px;color:var(--muted)">${esc(view.result.subhead)}</p>
+      ${view.result.bars.map((b) => bar(b, b.meta ?? "")).join("")}
+      <ul class="inputlist" style="margin-top:12px">
+        ${view.result.basis.map((b) => `<li>${chip(b.kind === "observed" ? "ok" : "warm", b.kind)}<strong>${esc(b.label)}</strong><span class="src">${esc(b.value)}</span></li>`).join("")}
+      </ul>
+    </div>`
+        : ""
+    }
     <pre class="formula">${esc(view.formula)}</pre>
     <ul class="inputlist">
       ${view.inputs.map((input) => `<li>${chip(chipFor(input.status), input.status)}<strong>${esc(input.field)}</strong><span class="src">${esc(input.source)}</span></li>`).join("")}

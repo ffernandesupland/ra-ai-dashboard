@@ -9,7 +9,15 @@ import type {
 } from "@/lib/reports/map";
 
 /** Bump when any formula below changes; triggers a backfill of historic snapshots. */
-export const METRICS_VERSION = 4;
+export const METRICS_VERSION = 7;
+
+/**
+ * Default review cadence, in days. A cited solution older than this is "due for review";
+ * anything fresher is within cadence and healthy, so it is excluded from loop closure.
+ * KCS treats an accurate, in-cadence article as done, not as a pending edit. Configurable
+ * per workspace under Settings.
+ */
+export const DEFAULT_REVIEW_THRESHOLD_DAYS = 90;
 
 /**
  * The full input to the metrics engine. Produced both by the ingest pipeline
@@ -150,8 +158,20 @@ export interface Repair {
   refreshedIn30Days: number;
   untouchedOverYear: number;
   denominator: number;
+  /** Raw closure over every cited solution. Kept for continuity; no longer the headline. */
   loopClosure: number;
   loopClosureWeighted: number;
+  /** The review cadence this snapshot was scored against. */
+  reviewThresholdDays: number;
+  /** Cited solutions older than the review threshold: due for review and not yet done. */
+  overdueForReview: number;
+  /** Cited solutions within the review cadence: healthy, excluded from the denominator. */
+  onCadence: number;
+  /** The KCS denominator: solutions that actually needed attention (refreshed + overdue). */
+  dueForReview: number;
+  /** Headline. Of the solutions due for review, the share that were refreshed in the window. */
+  reviewClosure: number;
+  reviewClosureWeighted: number;
   aiAssistedCount: number;
   aiShareOfRepair: number;
   aiFeatureMix: BarDatum[];
@@ -200,6 +220,15 @@ export interface RoiView {
   state: "modelled" | "blocked";
   inputs: RoiInput[];
   note: string;
+  /** Present when the view produces a modelled figure, absent when it is blocked. */
+  result?: RoiResult;
+}
+
+export interface RoiResult {
+  headline: string;
+  subhead: string;
+  bars: BarDatum[];
+  basis: { label: string; value: string; kind: "observed" | "assumed" }[];
 }
 
 export interface RoiModel {

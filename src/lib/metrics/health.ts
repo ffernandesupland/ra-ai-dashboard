@@ -1,3 +1,4 @@
+import { DEFAULT_REVIEW_THRESHOLD_DAYS } from "./types";
 import type { BarDatum, Decay, DecayBand, Repair, SnapshotDataset, WorklistItem } from "./types";
 
 const STALENESS_BANDS: { label: string; min: number; max: number; tone: DecayBand["tone"] }[] = [
@@ -23,7 +24,7 @@ export function ageChip(days: number): WorklistItem["chip"] {
   return days > 700 ? "hot" : days > 365 ? "warm" : "ok";
 }
 
-export function computeDecay(data: SnapshotDataset): Decay {
+export function computeDecay(data: SnapshotDataset, reviewThresholdDays: number = DEFAULT_REVIEW_THRESHOLD_DAYS): Decay {
   const rows = data.solutionUsage.filter((r) => r.daysSinceModified !== null);
   const totalCitations = data.solutionUsage.reduce((sum, r) => sum + r.citations, 0);
 
@@ -50,7 +51,10 @@ export function computeDecay(data: SnapshotDataset): Decay {
     .filter((r) => r.daysSinceModified! > 365)
     .reduce((sum, r) => sum + r.citations, 0);
 
+  // Only solutions overdue for review belong on the worklist: an article still
+  // within its review cadence is healthy, not a pending edit.
   const worklist: WorklistItem[] = rows
+    .filter((r) => r.daysSinceModified! > reviewThresholdDays)
     .map((r) => ({
       solutionId: r.solutionId,
       title: r.title,
@@ -80,10 +84,17 @@ const AI_FEATURES: { key: string; label: string }[] = [
 ];
 
 /**
- * Loop closure. Any edit within the window counts, whoever or whatever made it —
- * the metric is content freshness, not AI attribution. AI-assisted share sits underneath.
+ * Loop closure, KCS-adjusted. The denominator is not every cited solution — an accurate
+ * article within its review cadence is healthy, not a pending edit. It is the solutions that
+ * actually needed attention: those overdue for review (older than the threshold) plus those
+ * refreshed inside the window. Any edit counts, whoever or whatever made it. AI-assisted share
+ * sits underneath.
  */
-export function computeRepair(data: SnapshotDataset, aiUsageRows: Record<string, unknown>[]): Repair {
+export function computeRepair(
+  data: SnapshotDataset,
+  aiUsageRows: Record<string, unknown>[],
+  reviewThresholdDays: number = DEFAULT_REVIEW_THRESHOLD_DAYS,
+): Repair {
   const solutions = data.solutionUsage;
   const dated = solutions.filter((r) => r.daysSinceModified !== null);
   const totalCitations = solutions.reduce((sum, r) => sum + r.citations, 0);
@@ -92,8 +103,17 @@ export function computeRepair(data: SnapshotDataset, aiUsageRows: Record<string,
   const refreshed30 = dated.filter((r) => r.daysSinceModified! <= 30);
   const untouchedOverYear = dated.filter((r) => r.daysSinceModified! > 365);
 
+  // Review cadence split. onCadence is healthy and deliberately left out of the denominator.
+  const overdue = dated.filter((r) => r.daysSinceModified! > reviewThresholdDays);
+  const onCadence = dated.filter((r) => r.daysSinceModified! <= reviewThresholdDays);
+  const dueForReview = refreshed.length + overdue.length;
+  const refreshedCitations = refreshed.reduce((sum, r) => sum + r.citations, 0);
+  const overdueCitations = overdue.reduce((sum, r) => sum + r.citations, 0);
+  const dueCitations = refreshedCitations + overdueCitations;
+
   const aiIds = new Set(data.aiKaSolutions.map((r) => r.solutionId));
   const aiAssisted = refreshed.filter((r) => aiIds.has(r.solutionId));
+
 
   // 1,368 of 1,375 rows are all-zero in the reference tenant; leaving them in
   // makes adoption read as 0.5% and means nothing.
@@ -126,6 +146,12 @@ export function computeRepair(data: SnapshotDataset, aiUsageRows: Record<string,
     loopClosureWeighted: totalCitations
       ? (refreshed.reduce((sum, r) => sum + r.citations, 0) / totalCitations) * 100
       : 0,
+    reviewThresholdDays,
+    overdueForReview: overdue.length,
+    onCadence: onCadence.length,
+    dueForReview,
+    reviewClosure: dueForReview ? (refreshed.length / dueForReview) * 100 : 0,
+    reviewClosureWeighted: dueCitations ? (refreshedCitations / dueCitations) * 100 : 0,
     aiAssistedCount: aiAssisted.length,
     aiShareOfRepair: refreshed.length ? (aiAssisted.length / refreshed.length) * 100 : 0,
     aiFeatureMix,

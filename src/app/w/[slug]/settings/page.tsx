@@ -1,9 +1,10 @@
 import { revalidatePath } from "next/cache";
 import { Masthead, Nav } from "@/components/chrome";
 import { prisma } from "@/lib/db";
-import { readAssumptions } from "@/lib/ingest/commit";
+import { readAssumptions, readReviewThreshold } from "@/lib/ingest/commit";
 import { toJson } from "@/lib/json";
 import { DEFAULT_ASSUMPTIONS, type AssumedConstants } from "@/lib/metrics/roi";
+import { DEFAULT_REVIEW_THRESHOLD_DAYS } from "@/lib/metrics/types";
 import { recomputeAll } from "@/lib/snapshots";
 import { requireWorkspace } from "../workspace";
 
@@ -23,6 +24,7 @@ export default async function SettingsPage({ params }: { params: Promise<{ slug:
   const { slug } = await params;
   const { workspace, nav } = await requireWorkspace(slug);
   const assumptions = readAssumptions(workspace.settings);
+  const reviewThresholdDays = readReviewThreshold(workspace.settings);
 
   async function save(formData: FormData) {
     "use server";
@@ -32,12 +34,17 @@ export default async function SettingsPage({ params }: { params: Promise<{ slug:
       // Reject anything non-finite or negative rather than silently storing NaN.
       next[field.key] = Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_ASSUMPTIONS[field.key];
     }
-    await writeAssumptions(workspace.id, next);
+    const rawThreshold = Number(formData.get("reviewThresholdDays"));
+    const nextThreshold =
+      Number.isFinite(rawThreshold) && rawThreshold >= 1
+        ? Math.round(rawThreshold)
+        : DEFAULT_REVIEW_THRESHOLD_DAYS;
+    await writeAssumptions(workspace.id, next, nextThreshold);
   }
 
   async function reset() {
     "use server";
-    await writeAssumptions(workspace.id, DEFAULT_ASSUMPTIONS);
+    await writeAssumptions(workspace.id, DEFAULT_ASSUMPTIONS, DEFAULT_REVIEW_THRESHOLD_DAYS);
   }
 
   return (
@@ -68,6 +75,21 @@ export default async function SettingsPage({ params }: { params: Promise<{ slug:
               <p style={{ fontSize: 12, marginTop: 4 }}>{field.hint}</p>
             </div>
           ))}
+          <div>
+            <label htmlFor="reviewThresholdDays">Review cadence (days)</label>
+            <input
+              id="reviewThresholdDays"
+              name="reviewThresholdDays"
+              type="number"
+              step="1"
+              min="1"
+              defaultValue={reviewThresholdDays}
+            />
+            <p style={{ fontSize: 12, marginTop: 4 }}>
+              A cited solution older than this is due for review. Anything fresher is within
+              cadence and excluded from loop closure, so healthy content is not counted as debt.
+            </p>
+          </div>
         </div>
         <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
           <button className="btn" type="submit">
@@ -83,11 +105,17 @@ export default async function SettingsPage({ params }: { params: Promise<{ slug:
 }
 
 /** Re-reads settings inside the action so a concurrent edit is not clobbered wholesale. */
-async function writeAssumptions(workspaceId: string, assumptions: AssumedConstants) {
+async function writeAssumptions(
+  workspaceId: string,
+  assumptions: AssumedConstants,
+  reviewThresholdDays: number,
+) {
   const current = await prisma.workspace.findUniqueOrThrow({ where: { id: workspaceId } });
   await prisma.workspace.update({
     where: { id: workspaceId },
-    data: { settings: toJson({ ...(current.settings as object), assumptions }) },
+    data: {
+      settings: toJson({ ...(current.settings as object), assumptions, reviewThresholdDays }),
+    },
   });
   await recomputeAll(workspaceId);
   revalidatePath("/", "layout");

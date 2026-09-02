@@ -1,7 +1,7 @@
 import { ReportType, SnapshotStatus } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/db";
 import { toJson } from "@/lib/json";
-import { readAssumptions } from "@/lib/ingest/commit";
+import { readAssumptions, readReviewThreshold } from "@/lib/ingest/commit";
 import { METRICS_VERSION, buildDashboardData, type DashboardData, type SnapshotDataset } from "@/lib/metrics";
 import { generateNarratives } from "@/lib/narrative";
 
@@ -133,6 +133,7 @@ export async function recomputeMetrics(snapshotId: string): Promise<DashboardDat
 
   const dashboard = buildDashboardData(dataset, {
     assumptions: readAssumptions(snapshot.workspace.settings),
+    reviewThresholdDays: readReviewThreshold(snapshot.workspace.settings),
   });
 
   // Recomputing is a formula change, not new evidence, so previously generated
@@ -167,8 +168,9 @@ async function persist(snapshotId: string, dashboard: DashboardData) {
     answerRate: dashboard.counts.answerRate,
     solutionsCited: dashboard.counts.solutionsCited,
     totalCitations: dashboard.counts.totalCitations,
-    loopClosure: dashboard.repair.loopClosure,
-    loopClosureWtd: dashboard.repair.loopClosureWeighted,
+    // Promoted columns carry the review-adjusted headline for /trends and the index.
+    loopClosure: dashboard.repair.reviewClosure,
+    loopClosureWtd: dashboard.repair.reviewClosureWeighted,
     aiShareOfRepair: dashboard.repair.aiShareOfRepair,
     medianTtfaSec: dashboard.serving.p50,
   };
