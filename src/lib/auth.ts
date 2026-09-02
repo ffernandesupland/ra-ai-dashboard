@@ -73,6 +73,13 @@ export async function endSession() {
 
 export const SESSION_COOKIE = COOKIE;
 
+/**
+ * Embed sessions get their own cookie rather than reusing kl_session: it has to be
+ * SameSite=None to survive a cross-site iframe, and widening the real session cookie
+ * that way would expose the whole app to cross-site requests.
+ */
+export const EMBED_COOKIE = "kl_embed";
+
 export function issueEmbedToken(): string {
   const expires = Date.now() + embedMaxAgeMs();
   const payload = `${EMBED_TOKEN_PURPOSE}.${expires}`;

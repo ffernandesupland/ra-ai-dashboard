@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Logo } from "./logo";
 import { WorkspaceSwitcher } from "./workspace-switcher";
+import { embedContext, withEmbedToken } from "@/lib/embed";
 
 export interface NavWorkspace {
   slug: string;
@@ -8,13 +9,14 @@ export interface NavWorkspace {
   options: { slug: string; name: string }[];
 }
 
-export function Nav({
+export async function Nav({
   active,
   workspace,
 }: {
   active: "dashboard" | "trends" | "upload" | "snapshots" | "settings";
   workspace: NavWorkspace;
 }) {
+  const { embedded, token } = await embedContext();
   const base = `/w/${workspace.slug}`;
   const links = [
     { id: "dashboard", href: base, label: "Dashboard" },
@@ -22,24 +24,41 @@ export function Nav({
     { id: "upload", href: `${base}/upload`, label: "Upload" },
     { id: "snapshots", href: `${base}/snapshots`, label: "Snapshots" },
     { id: "settings", href: `${base}/settings`, label: "Settings" },
-  ] as const;
+    // Both are blocked for embed sessions, so offering them would only 403.
+  ].filter((link) => !embedded || (link.id !== "upload" && link.id !== "settings"));
 
   return (
     <nav className="navlinks">
-      <Link href="/" aria-label="All workspaces" className="brand">
-        <Logo height={26} />
-      </Link>
-      <WorkspaceSwitcher current={workspace.slug} options={workspace.options} />
+      {/* Hook for the embed stylesheet: the host portal owns the page canvas. */}
+      {embedded ? <span className="embed-marker" hidden /> : null}
+      {embedded ? (
+        <span className="brand">
+          <Logo height={26} />
+        </span>
+      ) : (
+        <Link href="/" aria-label="All workspaces" className="brand">
+          <Logo height={26} />
+        </Link>
+      )}
+      {embedded ? null : (
+        <WorkspaceSwitcher current={workspace.slug} options={workspace.options} />
+      )}
       {links.map((link) => (
-        <Link key={link.id} href={link.href} data-active={active === link.id}>
+        <Link
+          key={link.id}
+          href={withEmbedToken(link.href, token)}
+          data-active={active === link.id}
+        >
           {link.label}
         </Link>
       ))}
-      <form action="/api/auth/logout" method="post" style={{ marginLeft: "auto" }}>
-        <button type="submit" className="signout">
-          Sign out
-        </button>
-      </form>
+      {embedded ? null : (
+        <form action="/api/auth/logout" method="post" style={{ marginLeft: "auto" }}>
+          <button type="submit" className="signout">
+            Sign out
+          </button>
+        </form>
+      )}
     </nav>
   );
 }

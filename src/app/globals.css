@@ -104,6 +104,18 @@ a:hover {
   padding: 0 28px 64px;
 }
 
+/* Embedded in a host portal. The portal already supplies the page background, its
+   own header and outer gutters, so the dashboard drops its canvas and centring and
+   sits flush inside the iframe rather than floating on a second grey page. */
+body:has(.embed-marker) {
+  background: transparent;
+}
+
+body:has(.embed-marker) .shell {
+  max-width: none;
+  padding: 0 20px 32px;
+}
+
 .brandbar {
   display: flex;
   align-items: center;
