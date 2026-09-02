@@ -43,7 +43,6 @@ export function proxy(request: NextRequest) {
 
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-embed", "1");
-    requestHeaders.set("x-embed-token", embedToken);
 
     const response = NextResponse.next({ request: { headers: requestHeaders } });
     // Partitioned keeps the cookie usable in browsers that drop third-party
