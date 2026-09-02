@@ -70,7 +70,7 @@ body {
 }
 
 body {
-  background: var(--ground);
+  background: var(--surface);
   color: var(--ink);
   font-family: var(--sans);
   font-size: 15px;
@@ -104,13 +104,8 @@ a:hover {
   padding: 0 28px 64px;
 }
 
-/* Embedded in a host portal. The portal already supplies the page background, its
-   own header and outer gutters, so the dashboard drops its canvas and centring and
-   sits flush inside the iframe rather than floating on a second grey page. */
-body:has(.embed-marker) {
-  background: transparent;
-}
-
+/* Embedded in a host portal, which supplies its own header and outer gutters, so
+   the dashboard drops its centring and sits flush inside the iframe. */
 body:has(.embed-marker) .shell {
   max-width: none;
   padding: 0 20px 32px;
@@ -317,7 +312,9 @@ body:has(.embed-marker) .shell {
   z-index: 20;
   display: flex;
   flex-wrap: wrap;
-  background: var(--ground);
+  /* Opaque and matching the page, so rows scrolling underneath stay hidden
+     without the bar reading as a band of its own. */
+  background: var(--surface);
   border-bottom: 1px solid var(--hair);
 }
 

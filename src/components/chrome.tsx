@@ -29,13 +29,10 @@ export async function Nav({
 
   return (
     <nav className="navlinks">
-      {/* Hook for the embed stylesheet: the host portal owns the page canvas. */}
+      {/* Hook for the embed stylesheet: the host portal owns the outer layout. */}
       {embedded ? <span className="embed-marker" hidden /> : null}
-      {embedded ? (
-        <span className="brand">
-          <Logo height={26} />
-        </span>
-      ) : (
+      {/* The host portal already shows its own branding above the iframe. */}
+      {embedded ? null : (
         <Link href="/" aria-label="All workspaces" className="brand">
           <Logo height={26} />
         </Link>
