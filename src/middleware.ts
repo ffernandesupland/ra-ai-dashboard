@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { verifyToken } from "@/lib/auth";
+import { verifyToken, verifyEmbedToken } from "@/lib/auth";
 
 const PUBLIC_PATHS = ["/login", "/api/auth/login"];
 
@@ -16,6 +16,13 @@ export function middleware(request: NextRequest) {
   }
 
   if (verifyToken(request.cookies.get("kl_session")?.value)) {
+    return NextResponse.next();
+  }
+
+  // Allow iframe embeds via a signed long-lived token passed as a query param.
+  // Browsers don't send SameSite=lax cookies in cross-site iframes, so the
+  // token is the only viable auth mechanism in that context.
+  if (verifyEmbedToken(request.nextUrl.searchParams.get("embed_token") ?? undefined)) {
     return NextResponse.next();
   }
 
