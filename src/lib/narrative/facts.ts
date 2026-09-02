@@ -11,8 +11,7 @@ export function buildFacts(data: MetricsForNarrative) {
   const { counts, repair, decay, grounding, demand, retrieval, serving } = data;
 
   return {
-    window: { label: data.window.label, days: data.window.days },
-    volume: {
+    window: { label: data.window.label, days: data.window.days },    volume: {
       questionsAsked: counts.questionsAsked,
       distinctQuestions: counts.distinctQuestions,
       answeredCount: counts.answeredCount,
@@ -28,6 +27,11 @@ export function buildFacts(data: MetricsForNarrative) {
       medianTimeToAnswerSec: serving.p50,
       p90TimeToAnswerSec: serving.p90,
     },
+    timeToAnswerByPortalGroup: data.ttfaByPortalGroup.map((g) => ({
+      portalGroup: g.label,
+      medianTimeToAnswerSec: g.value,
+    })),
+    citationSpread: serving.citationSpread.map((b) => ({ band: b.label, solutions: b.value })),
     grounding: {
       unansweredQuestions: grounding.unanswered,
       failuresThatHadCandidatesRetrieved: grounding.failuresWithContext,
@@ -80,11 +84,23 @@ export function buildFacts(data: MetricsForNarrative) {
       untouchedOverOneYear: repair.untouchedOverYear,
       loopClosurePct: round(repair.loopClosure),
       loopClosureCitationWeightedPct: round(repair.loopClosureWeighted),
+      reviewThresholdDays: repair.reviewThresholdDays,
+      solutionsDueForReview: repair.dueForReview,
+      solutionsOverdueForReview: repair.overdueForReview,
+      solutionsWithinReviewCadence: repair.onCadence,
+      reviewClosurePct: round(repair.reviewClosure),
+      reviewClosureCitationWeightedPct: round(repair.reviewClosureWeighted),
       aiAssistedRepairs: repair.aiAssistedCount,
       aiShareOfRepairPct: round(repair.aiShareOfRepair),
       aiTouchedSolutions: repair.aiTouched.length,
       aiTouchedNeverPublished: repair.aiNotPublished,
     },
+    repairWorklist: decay.worklist.map((w) => ({
+      solution: w.title,
+      citations: w.citations,
+      daysSinceModified: w.days,
+    })),
+    repairQueue: data.repairQueue.map((q) => ({ gap: q.candidate, signal: q.signal, status: q.status })),
   };
 }
 

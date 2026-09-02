@@ -27,7 +27,7 @@ Never use:
 Spelling is British: "colour", "behaviour", "prioritise".
 
 Here are passages from a previous edition, to fix the register. Match this voice and this length:
-"The loop is open. Gen Answers cited 77 solutions this week. 3 of them were edited by anyone, by any method. The content doing the answering is not the content getting maintained."
+"Loop closure is measured only against the solutions that were due for review, not every cited article. Most of those due were refreshed this week, so the content under live load is also the content getting maintained."
 "The same question, asked repeatedly, answered inconsistently. This is not a coverage gap, because the knowledge base holds a VPN guide. It is a content quality gap."
 "116 of 116 unanswered questions had candidate solutions retrieved. Search worked. Generation refused to ground on what it got. That isolates the failure to content quality rather than retrieval tuning."`;
 

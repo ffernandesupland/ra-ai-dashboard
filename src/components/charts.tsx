@@ -125,9 +125,18 @@ export function LineChart({ points }: { points: { date: string; answerRate: numb
   const width = 320;
   const height = 150;
   const pad = { top: 12, right: 8, bottom: 22, left: 26 };
-  const maxY = 70;
 
   if (points.length === 0) return <p>No daily summary in this snapshot.</p>;
+
+  // A fixed 0–70 axis pins healthy (90%+) days to the ceiling and flattens the
+  // line. The domain is fit to the data — snapped to 5% steps with headroom and
+  // a minimum 10-point span — so day-to-day variation is legible at any level.
+  const values = points.map((p) => p.answerRate);
+  const upper = Math.min(100, Math.ceil((Math.max(...values) + 3) / 5) * 5);
+  const lower =
+    upper - Math.max(10, Math.ceil((upper - Math.floor((Math.min(...values) - 3) / 5) * 5) / 5) * 5);
+  const minY = Math.max(0, lower);
+  const span = upper - minY || 1;
 
   const x = (i: number) =>
     pad.left +
@@ -135,7 +144,7 @@ export function LineChart({ points }: { points: { date: string; answerRate: numb
       ? (width - pad.left - pad.right) / 2
       : (i / (points.length - 1)) * (width - pad.left - pad.right));
   const y = (value: number) =>
-    pad.top + (1 - Math.min(value, maxY) / maxY) * (height - pad.top - pad.bottom);
+    pad.top + (1 - (Math.min(Math.max(value, minY), upper) - minY) / span) * (height - pad.top - pad.bottom);
 
   const path = points.map((p, i) => `${i === 0 ? "M" : "L"}${x(i)},${y(p.answerRate)}`).join(" ");
 
@@ -148,7 +157,7 @@ export function LineChart({ points }: { points: { date: string; answerRate: numb
       ).toFixed(0)}% to ${Math.max(...points.map((p) => p.answerRate)).toFixed(0)}%`}
       style={{ width: "100%", height: "auto" }}
     >
-      {[0, maxY / 2, maxY].map((tick) => (
+      {[minY, (minY + upper) / 2, upper].map((tick) => (
         <g key={tick}>
           <line x1={pad.left} x2={width - pad.right} y1={y(tick)} y2={y(tick)} stroke="var(--hair)" strokeWidth="1" />
           <text x={pad.left - 5} y={y(tick) + 3} textAnchor="end" fontSize="8" fontFamily="var(--mono)" fill="var(--slate)">

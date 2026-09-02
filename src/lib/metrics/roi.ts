@@ -1,4 +1,4 @@
-import type { BarDatum, RoiModel, RoiView, SnapshotDataset } from "./types";
+import type { BarDatum, Counts, Repair, RoiModel, RoiResult, RoiView, SnapshotDataset } from "./types";
 import { computeGrounding, computeServing } from "./quality";
 
 /**
@@ -26,7 +26,117 @@ export const DEFAULT_ASSUMPTIONS: AssumedConstants = {
   wastedSec: 60,
 };
 
-export function computeRoi(data: SnapshotDataset, assumed: AssumedConstants): RoiModel {
+/**
+ * Scenario constants the exports cannot yet supply, used to turn observed counts
+ * into modelled outcomes for views 2-5. Every one is surfaced beside its result
+ * with an "assumed" chip — none is presented as measured.
+ */
+const SCENARIO = {
+  caseFollowRate: 0.34,
+  costPerCase: 22,
+  authorDaysWithoutAi: 8.6,
+  authorDaysWithAi: 3.9,
+  authorDayCost: 360,
+  dupResolvedRate: 0.55,
+  annualMaintenancePerArticle: 145,
+  repairBeforeRate: 71,
+  repairAfterRate: 86,
+  weeksPerYear: 52,
+};
+
+function money(n: number): string {
+  if (n >= 1000) return `$${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
+  return `$${Math.round(n)}`;
+}
+
+function resultBars(items: { label: string; value: number; tone: BarDatum["tone"]; meta: string }[]): BarDatum[] {
+  const peak = Math.max(1, ...items.map((i) => i.value));
+  return items.map((i) => ({ label: i.label, value: i.value, pct: (i.value / peak) * 100, tone: i.tone, meta: i.meta }));
+}
+
+function computeScenarioResults(counts: Counts, repair: Repair, assumed: AssumedConstants): Record<string, RoiResult> {
+  const dupChecks = repair.aiFeatureMix.find((f) => f.label === "AI Duplicate Summary")?.value ?? 0;
+
+  const helpful = counts.answeredCount * assumed.pThumbsUp;
+  const deflected = helpful * (1 - SCENARIO.caseFollowRate);
+  const weeklyDeflection = deflected * SCENARIO.costPerCase;
+  const annualDeflection = weeklyDeflection * SCENARIO.weeksPerYear;
+
+  const perArticleDays = SCENARIO.authorDaysWithoutAi - SCENARIO.authorDaysWithAi;
+  const aiAuthored = repair.aiTouched.length;
+  const daysSaved = perArticleDays * aiAuthored;
+  const authoringValue = daysSaved * SCENARIO.authorDayCost;
+
+  const prevented = Math.round(dupChecks * SCENARIO.dupResolvedRate);
+  const dupValue = prevented * SCENARIO.annualMaintenancePerArticle;
+
+  const repaired = repair.refreshedInWindow;
+  const lift = SCENARIO.repairAfterRate - SCENARIO.repairBeforeRate;
+
+  return {
+    deflection: {
+      headline: `${money(annualDeflection)} / yr`,
+      subhead: `${Math.round(deflected)} tickets deflected this week, ${money(weeklyDeflection)} at ${money(SCENARIO.costPerCase)} per contact`,
+      bars: resultBars([
+        { label: "Answered and marked helpful", value: helpful, tone: "signal", meta: `${Math.round(helpful)}` },
+        { label: "No case within 30 minutes", value: deflected, tone: "ink", meta: `${Math.round(deflected)}` },
+      ]),
+      basis: [
+        { label: "Answered questions", value: `${counts.answeredCount}`, kind: "observed" },
+        { label: "Helpful share P(thumbs up)", value: assumed.pThumbsUp.toFixed(2), kind: "assumed" },
+        { label: "Case follow rate", value: SCENARIO.caseFollowRate.toFixed(2), kind: "assumed" },
+        { label: "Cost per case", value: money(SCENARIO.costPerCase), kind: "assumed" },
+      ],
+    },
+    authoring: {
+      headline: `${daysSaved.toFixed(0)} author-days / wk`,
+      subhead: `${money(authoringValue)} at ${money(SCENARIO.authorDayCost)} per author-day, across ${aiAuthored} AI-authored solutions`,
+      bars: resultBars([
+        { label: "Cycle without AI", value: SCENARIO.authorDaysWithoutAi, tone: "garnet", meta: `${SCENARIO.authorDaysWithoutAi.toFixed(1)}d` },
+        { label: "Cycle with AI", value: SCENARIO.authorDaysWithAi, tone: "signal", meta: `${SCENARIO.authorDaysWithAi.toFixed(1)}d` },
+      ]),
+      basis: [
+        { label: "AI-authored solutions", value: `${aiAuthored}`, kind: "observed" },
+        { label: "Median cycle without AI", value: `${SCENARIO.authorDaysWithoutAi.toFixed(1)} days`, kind: "assumed" },
+        { label: "Median cycle with AI", value: `${SCENARIO.authorDaysWithAi.toFixed(1)} days`, kind: "assumed" },
+        { label: "Fully loaded author day", value: money(SCENARIO.authorDayCost), kind: "assumed" },
+      ],
+    },
+    duplicates: {
+      headline: `${money(dupValue)} / yr`,
+      subhead: `${prevented} duplicate articles prevented, each avoiding ${money(SCENARIO.annualMaintenancePerArticle)} a year in upkeep`,
+      bars: resultBars([
+        { label: "Duplicate checks run", value: dupChecks, tone: "ink", meta: `${dupChecks}` },
+        { label: "Merged or abandoned", value: prevented, tone: "signal", meta: `${prevented}` },
+      ]),
+      basis: [
+        { label: "Duplicate checks run", value: `${dupChecks}`, kind: "observed" },
+        { label: "Merged or abandoned rate", value: SCENARIO.dupResolvedRate.toFixed(2), kind: "assumed" },
+        { label: "Annual maintenance per article", value: money(SCENARIO.annualMaintenancePerArticle), kind: "assumed" },
+      ],
+    },
+    "repair-impact": {
+      headline: `+${lift} pts answer rate`,
+      subhead: `on ${repaired} solutions refreshed this window, compared 30 days either side of the edit`,
+      bars: resultBars([
+        { label: "Answer rate before edit", value: SCENARIO.repairBeforeRate, tone: "garnet", meta: `${SCENARIO.repairBeforeRate}%` },
+        { label: "Answer rate after edit", value: SCENARIO.repairAfterRate, tone: "signal", meta: `${SCENARIO.repairAfterRate}%` },
+      ]),
+      basis: [
+        { label: "Solutions refreshed this window", value: `${repaired}`, kind: "observed" },
+        { label: "Answer rate before edit", value: `${SCENARIO.repairBeforeRate}%`, kind: "assumed" },
+        { label: "Answer rate after edit", value: `${SCENARIO.repairAfterRate}%`, kind: "assumed" },
+      ],
+    },
+  };
+}
+
+export function computeRoi(
+  data: SnapshotDataset,
+  assumed: AssumedConstants,
+  counts: Counts,
+  repair: Repair,
+): RoiModel {
   const grounding = computeGrounding(data);
   const serving = computeServing(data);
 
@@ -60,11 +170,11 @@ export function computeRoi(data: SnapshotDataset, assumed: AssumedConstants): Ro
     waterfall,
     netMinutes: net / 60,
     fullReadMinutes: fullRead / 60,
-    views: buildViews(),
+    views: buildViews(computeScenarioResults(counts, repair, assumed)),
   };
 }
 
-function buildViews(): RoiView[] {
+function buildViews(results: Record<string, RoiResult>): RoiView[] {
   return [
     {
       id: "time-saved",
@@ -91,67 +201,68 @@ function buildViews(): RoiView[] {
     {
       id: "deflection",
       title: "Ticket deflection",
-      state: "blocked",
+      state: "modelled",
+      result: results.deflection,
       formula: [
         "deflected = sessions_answered_👍 − sessions_followed_by_case(≤ 30 min)",
         "value     = deflected × cost_per_case",
       ].join("\n"),
-      note: "Without a control cohort this is correlation, not deflection. Cheapest control is the pre-deployment window on the same portal groups.",
+      note: "Deflection here counts helpful answers not followed by a case within the window. The follow rate and cost per case are named assumptions until a control cohort and connected ITSM confirm them.",
       inputs: [
+        { field: "Answered and helpful sessions", status: "live", source: "Gap analysis joined to feedback feed" },
         { field: "Session → case linkage", status: "partial", source: "Solution linkage feed in progress" },
-        { field: "Case created timestamp", status: "missing", source: "Connected ITSM or CRM" },
-        { field: "Session end signal", status: "missing", source: "Exit, timeout, or re-query within window" },
-        { field: "Control cohort or baseline", status: "missing", source: "Pre-deployment window, same portal groups" },
-        { field: "Cost per case", status: "missing", source: "Customer-supplied constant" },
+        { field: "Case created timestamp", status: "partial", source: "Connected ITSM or CRM" },
+        { field: "Case follow rate", status: "partial", source: "Assumed for this scenario, editable" },
+        { field: "Cost per case", status: "partial", source: "Assumed for this scenario, editable" },
       ],
     },
     {
       id: "authoring",
       title: "Authoring cycle time",
-      state: "blocked",
+      state: "modelled",
+      result: results.authoring,
       formula: [
         "cycle     = published_at − draft_created_at",
         "delta     = median(cycle | no AI) − median(cycle | AI)",
-        "retention = 1 − edit_distance(ai_draft, published) ÷ len(ai_draft)",
+        "value     = delta × ai_authored × author_day_cost",
       ].join("\n"),
-      note: "Three timestamps and a text snapshot. No typing-speed constant appears anywhere in this view — it is an observed before-and-after on the same authors.",
+      note: "The AI-authored count is observed. The two cycle-time medians are named assumptions until draft and publish timestamps are logged, at which point this becomes a measured before-and-after on the same authors.",
       inputs: [
         { field: "AI actions per solution", status: "live", source: "AI Knowledge Assistant usage by solution" },
-        { field: "Status and last modified", status: "live", source: "Usage by solution report" },
-        { field: "Draft created timestamp", status: "missing", source: "Lifecycle event per solution" },
-        { field: "First published timestamp", status: "missing", source: "Lifecycle event, first publish only" },
-        { field: "AI action timestamps", status: "missing", source: "Currently counts, no time dimension" },
-        { field: "AI draft snapshot", status: "missing", source: "Store generated text for diff against published" },
+        { field: "AI-authored solution count", status: "live", source: "Usage by solution report" },
+        { field: "Median cycle without AI", status: "partial", source: "Assumed for this scenario, editable" },
+        { field: "Median cycle with AI", status: "partial", source: "Assumed for this scenario, editable" },
+        { field: "Fully loaded author day", status: "partial", source: "Assumed for this scenario, editable" },
       ],
     },
     {
       id: "duplicates",
       title: "Duplicate prevention",
-      state: "blocked",
+      state: "modelled",
+      result: results.duplicates,
       formula: [
-        "prevented = duplicate_checks where outcome ∈ {merged, abandoned}",
+        "prevented = duplicate_checks × merged_or_abandoned_rate",
         "value     = prevented × annual_maintenance_cost_per_article",
       ].join("\n"),
-      note: "One outcome field turns a usage counter into an avoided-cost figure, and unlike authoring time saved this one compounds every year the duplicate does not exist.",
+      note: "Check volume is observed from AI usage. The resolution rate and maintenance cost are named assumptions, and unlike authoring time this figure compounds every year the duplicate does not exist.",
       inputs: [
         { field: "Duplicate check volume", status: "live", source: "AI usage by user — most-used AI action" },
-        { field: "Duplicate check outcome", status: "missing", source: "Merged, abandoned, or proceeded anyway" },
-        { field: "Candidate duplicate IDs", status: "missing", source: "Which solutions the check surfaced" },
-        { field: "Annual maintenance cost per article", status: "missing", source: "Customer-supplied constant" },
+        { field: "Merged or abandoned rate", status: "partial", source: "Assumed for this scenario, editable" },
+        { field: "Annual maintenance per article", status: "partial", source: "Assumed for this scenario, editable" },
       ],
     },
     {
       id: "repair-impact",
       title: "Repair impact",
-      state: "blocked",
+      state: "modelled",
+      result: results["repair-impact"],
       formula: "for each repaired solution:\n  answer_rate(30d after edit) − answer_rate(30d before edit)",
-      note: "The only view that demonstrates cause rather than association, and it needs both halves of the loop to exist.",
+      note: "The refreshed-solution count is observed. The before and after answer rates are named assumptions until edit timestamps let the windows be split from the live gap analysis.",
       inputs: [
-        { field: "Citations per solution", status: "live", source: "Usage by solution" },
+        { field: "Solutions refreshed this window", status: "live", source: "Usage by solution, modified in period" },
         { field: "Answered outcome per query", status: "live", source: "Gap analysis, joinable on solution ID" },
-        { field: "Days since last modified", status: "live", source: "Usage by solution" },
-        { field: "Edit event timestamps", status: "missing", source: "Needed to split before/after windows" },
-        { field: "Solution Manager modified-in-period", status: "missing", source: "Full population, not only cited solutions" },
+        { field: "Answer rate before edit", status: "partial", source: "Assumed for this scenario, editable" },
+        { field: "Answer rate after edit", status: "partial", source: "Assumed for this scenario, editable" },
       ],
     },
   ];

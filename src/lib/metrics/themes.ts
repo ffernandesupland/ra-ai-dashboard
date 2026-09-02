@@ -15,6 +15,33 @@ export interface ThemeDefinition {
 }
 
 export const DEFAULT_THEMES: ThemeDefinition[] = [
+  // Insurance demand clusters (Allstate demo). Ordered claims-first so a query naming both
+  // a claim and a policy lands under claims; kept ahead of the QA-noise bucket.
+  {
+    theme: "Auto claims",
+    patterns: ["auto claim", "car accident", "collision", "fender bender", "file a claim", "accident claim"],
+    solutionHints: ["auto claim", "claim", "accident"],
+  },
+  {
+    theme: "Property claims",
+    patterns: ["property claim", "home claim", "water damage", "roof", "storm damage", "homeowner claim"],
+    solutionHints: ["property", "home", "damage"],
+  },
+  {
+    theme: "Billing & payments",
+    patterns: ["billing", "payment", "premium", "autopay", "refund", "invoice", "pay my bill"],
+    solutionHints: ["billing", "payment", "premium"],
+  },
+  {
+    theme: "Policy servicing",
+    patterns: ["policy", "coverage", "deductible", "endorsement", "renewal", "add a driver", "declaration page"],
+    solutionHints: ["policy", "coverage", "deductible"],
+  },
+  {
+    theme: "Roadside assistance",
+    patterns: ["roadside", "towing", "tow truck", "jump start", "lockout", "flat tire"],
+    solutionHints: ["roadside", "tow"],
+  },
   {
     theme: "Software testing",
     patterns: ["software testing", "testing techniques", "principles of software test"],

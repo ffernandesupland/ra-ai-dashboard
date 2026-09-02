@@ -4,6 +4,15 @@ import { cookies } from "next/headers";
 const COOKIE = "kl_session";
 const MAX_AGE_SECONDS = 60 * 60 * 12;
 
+// Embed tokens are long-lived URL tokens used when the dashboard is displayed
+// inside a cross-site iframe (SameSite=lax cookies are not sent in that context).
+// Expiry defaults to 7 days; override with EMBED_TOKEN_MAX_AGE_DAYS env var.
+const EMBED_TOKEN_PURPOSE = "embed";
+function embedMaxAgeMs(): number {
+  const days = Number(process.env.EMBED_TOKEN_MAX_AGE_DAYS ?? 7);
+  return (isFinite(days) && days > 0 ? days : 7) * 24 * 60 * 60 * 1000;
+}
+
 function secret(): string {
   const value = process.env.AUTH_SECRET;
   if (!value || value.length < 16) {
@@ -63,6 +72,28 @@ export async function endSession() {
 }
 
 export const SESSION_COOKIE = COOKIE;
+
+export function issueEmbedToken(): string {
+  const expires = Date.now() + embedMaxAgeMs();
+  const payload = `${EMBED_TOKEN_PURPOSE}.${expires}`;
+  const signature = createHmac("sha256", secret()).update(payload).digest("hex");
+  return `${payload}.${signature}`;
+}
+
+export function verifyEmbedToken(token: string | undefined): boolean {
+  if (!token) return false;
+  // format: "embed.<expires>.<signature>"
+  const parts = token.split(".");
+  if (parts.length !== 3) return false;
+  const [purpose, expiresStr, signature] = parts;
+  if (purpose !== EMBED_TOKEN_PURPOSE) return false;
+  const payload = `${purpose}.${expiresStr}`;
+  const expected = createHmac("sha256", secret()).update(payload).digest("hex");
+  const a = Buffer.from(signature, "hex");
+  const b = Buffer.from(expected, "hex");
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return false;
+  return Number(expiresStr) > Date.now();
+}
 
 /** Bearer-token guard for the automation ingest route. Disabled when no token is configured. */
 export function checkIngestToken(header: string | null): boolean {

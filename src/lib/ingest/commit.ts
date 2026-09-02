@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { toJson } from "@/lib/json";
 import { buildDashboardData } from "@/lib/metrics";
 import { DEFAULT_ASSUMPTIONS, type AssumedConstants } from "@/lib/metrics/roi";
+import { DEFAULT_REVIEW_THRESHOLD_DAYS } from "@/lib/metrics/types";
 import type { PreparedBatch } from "./prepare";
 
 export interface CommitOptions {
@@ -52,7 +53,10 @@ export async function commitBatch(batch: PreparedBatch, options: CommitOptions) 
 
   const workspace = await prisma.workspace.findUniqueOrThrow({ where: { id: options.workspaceId } });
   const assumptions = readAssumptions(workspace.settings);
-  const dashboard = buildDashboardData(batch.dataset, { assumptions });
+  const dashboard = buildDashboardData(batch.dataset, {
+    assumptions,
+    reviewThresholdDays: readReviewThreshold(workspace.settings),
+  });
 
   return prisma.$transaction(async (tx) => {
     if (existing) {
@@ -139,8 +143,10 @@ export async function commitBatch(batch: PreparedBatch, options: CommitOptions) 
         answerRate: dashboard.counts.answerRate,
         solutionsCited: dashboard.counts.solutionsCited,
         totalCitations: dashboard.counts.totalCitations,
-        loopClosure: dashboard.repair.loopClosure,
-        loopClosureWtd: dashboard.repair.loopClosureWeighted,
+        // The promoted columns carry the headline metric so /trends and the index
+        // can query it without deserialising: that headline is now review-adjusted closure.
+        loopClosure: dashboard.repair.reviewClosure,
+        loopClosureWtd: dashboard.repair.reviewClosureWeighted,
         aiShareOfRepair: dashboard.repair.aiShareOfRepair,
         medianTtfaSec: dashboard.serving.p50,
       },
@@ -153,4 +159,12 @@ export async function commitBatch(batch: PreparedBatch, options: CommitOptions) 
 export function readAssumptions(settings: unknown): AssumedConstants {
   const stored = (settings as { assumptions?: Partial<AssumedConstants> })?.assumptions ?? {};
   return { ...DEFAULT_ASSUMPTIONS, ...stored };
+}
+
+/** Review cadence in days from workspace settings, clamped to a sane range. */
+export function readReviewThreshold(settings: unknown): number {
+  const raw = (settings as { reviewThresholdDays?: unknown })?.reviewThresholdDays;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 1) return DEFAULT_REVIEW_THRESHOLD_DAYS;
+  return Math.round(value);
 }

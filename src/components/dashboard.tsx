@@ -300,6 +300,7 @@ function Quality({ data }: { data: DashboardData }) {
             {data.ttfaByPortalGroup.map((bar) => (
               <BarRow key={bar.label} datum={bar} valueLabel={`${bar.value}s`} />
             ))}
+            <p>{data.narratives.serveSpeed}</p>
           </div>
           <div className="card">
             <h3 className="card-title">Citation spread</h3>
@@ -309,6 +310,7 @@ function Quality({ data }: { data: DashboardData }) {
             <p>
               {counts.totalCitations} citations spread over {counts.solutionsCited} solutions.
             </p>
+            <p>{data.narratives.citationSpread}</p>
           </div>
         </div>
       </section>
@@ -393,6 +395,7 @@ function Health({ data }: { data: DashboardData }) {
                 ))}
               </tbody>
             </table>
+            <p>{data.narratives.worklistPriority}</p>
           </div>
         </div>
       </section>
@@ -401,9 +404,9 @@ function Health({ data }: { data: DashboardData }) {
         <StageHead
           num="06 / Repair"
           title="Loop closure"
-          sub={`${formatPct(repair.loopClosure)} of ${repair.denominator} cited solutions · ${formatPct(
-            repair.loopClosureWeighted,
-          )} citation-weighted`}
+          sub={`${formatPct(repair.reviewClosure)} of ${repair.dueForReview} solutions due for review were refreshed · ${formatPct(
+            repair.reviewClosureWeighted,
+          )} citation-weighted · ${repair.reviewThresholdDays}-day cadence`}
         />
         <div className="grid grid-3">
           <div className="card">
@@ -411,6 +414,13 @@ function Health({ data }: { data: DashboardData }) {
             {closureBars.map((bar) => (
               <BarRow key={bar.label} datum={bar} />
             ))}
+            <p>
+              Closure is scored only against the {repair.dueForReview} solutions that needed
+              attention — the {repair.overdueForReview} overdue past the {repair.reviewThresholdDays}-day
+              cadence plus the {repair.refreshedInWindow} refreshed in-window. The {repair.onCadence}{" "}
+              still within cadence are accurate and healthy, so KCS treats them as done rather than as
+              pending debt.
+            </p>
             <p>
               Any edit counts, by any method. A human rewriting a stale article closes the loop as
               effectively as AI does — a metric that only counts AI repair is feature usage wearing
@@ -497,6 +507,7 @@ function Health({ data }: { data: DashboardData }) {
             <em>weak grounding</em> means a reasonably fresh solution exists and generation still
             failed. {counts.solutionsCited} solutions cited, {counts.totalCitations} citations.
           </p>
+          <p>{data.narratives.repairQueue}</p>
         </div>
       </section>
     </>
@@ -525,9 +536,9 @@ function Roi({ data }: { data: DashboardData }) {
           {roi.views.length - live} {roi.views.length - live === 1 ? "is" : "are"} waiting on data.
         </h2>
         <p>
-          Every figure below derives from a stated formula with its inputs marked live, partial or
-          missing. No vendor benchmark constants appear anywhere. Where an input is missing it is
-          named rather than replaced with a plausible default.
+          Every figure below derives from a stated formula. Observed inputs come straight from the
+          exports; the remaining inputs are named assumptions, shown beside each result and editable,
+          never presented as measured.
         </p>
       </div>
 
@@ -579,6 +590,26 @@ function Roi({ data }: { data: DashboardData }) {
           <h3 className="card-title">
             View {index + 1} — {view.title}
           </h3>
+          {view.result && (
+            <div style={{ margin: "6px 0 14px" }}>
+              <div style={{ fontFamily: "var(--cond)", fontSize: 26, lineHeight: 1.1 }}>
+                {view.result.headline}
+              </div>
+              <p style={{ margin: "4px 0 12px", color: "var(--muted)" }}>{view.result.subhead}</p>
+              {view.result.bars.map((bar) => (
+                <BarRow key={bar.label} datum={bar} valueLabel={bar.meta} />
+              ))}
+              <ul className="inputlist" style={{ marginTop: 12 }}>
+                {view.result.basis.map((b) => (
+                  <li key={b.label}>
+                    <Chip kind={b.kind === "observed" ? "ok" : "warm"}>{b.kind}</Chip>
+                    <strong>{b.label}</strong>
+                    <span className="src num">{b.value}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <pre className="formula">{view.formula}</pre>
           <ul className="inputlist">
             {view.inputs.map((input) => (

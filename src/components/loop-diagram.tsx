@@ -7,6 +7,9 @@ const CENTER = SIZE / 2;
 const RADIUS = 142;
 const GAP_DEG = 7;
 const LABEL_RADIUS = RADIUS + 34;
+// The 3 o'clock and 9 o'clock labels extend past the ring, so the viewBox is
+// widened horizontally to keep them from clipping at the SVG edges.
+const PAD_X = 96;
 
 const TONE_STROKE: Record<string, string> = {
   signal: "var(--signal)",
@@ -55,10 +58,10 @@ export function LoopDiagram({
 
   return (
     <svg
-      viewBox={`0 0 ${SIZE} ${SIZE}`}
+      viewBox={`${-PAD_X} 0 ${SIZE + PAD_X * 2} ${SIZE}`}
       role="img"
       aria-label={`The knowledge loop. ${description}. The repair stage is drawn broken.`}
-      style={{ width: "100%", height: "auto", maxWidth: SIZE }}
+      style={{ width: "100%", height: "auto", maxWidth: SIZE + PAD_X * 2 }}
     >
       {stages.map((stage, index) => {
         const start = index * span + GAP_DEG / 2;

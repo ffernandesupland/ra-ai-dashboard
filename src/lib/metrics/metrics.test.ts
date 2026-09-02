@@ -158,6 +158,21 @@ describe("repair and loop closure", () => {
     expect(data!.repair.untouchedOverYear).toBe(46);
   });
 
+  it("scores review-adjusted closure only against solutions due for review", () => {
+    const repair = data!.repair;
+    // Default cadence, and healthy in-cadence content is excluded from the denominator.
+    expect(repair.reviewThresholdDays).toBe(90);
+    expect(repair.dueForReview).toBe(repair.refreshedInWindow + repair.overdueForReview);
+    // Overdue plus on-cadence are the dated solutions, so never exceed the full denominator.
+    expect(repair.overdueForReview + repair.onCadence).toBeLessThanOrEqual(repair.denominator);
+    expect(repair.reviewClosure).toBeCloseTo(
+      (repair.refreshedInWindow / repair.dueForReview) * 100,
+      5,
+    );
+    // Dropping the healthy denominator can only raise closure versus the raw metric.
+    expect(repair.reviewClosure).toBeGreaterThan(repair.loopClosure);
+  });
+
   it("surfaces AI work that never left draft", () => {
     expect(data!.repair.aiTouched).toHaveLength(5);
     expect(data!.repair.aiNotPublished).toBe(3);
